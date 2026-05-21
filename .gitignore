@@ -6,3 +6,7 @@ desktop.ini
 # Editor
 .vscode/
 *.swp
+
+# Build artifacts
+*.exe
+*.pdb
