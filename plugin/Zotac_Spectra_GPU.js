@@ -5,7 +5,7 @@
 export function Name() { return "ZOTAC SPECTRA 2.0 GPU"; }
 export function Publisher() { return "maxdimitrov"; }
 export function Type() { return "SMBUS"; }
-export function Size() { return [6, 2]; }
+export function Size() { return [12, 2]; }
 export function LedNames() { return vLedNames; }
 export function LedPositions() { return vLedPositions; }
 export function DeviceType() { return "gpu"; }
@@ -25,17 +25,26 @@ export function ControllableParameters() {
 	];
 }
 
-// Four independently colored areas, each a single color (not addressable).
-// Zone ids verified on the 3090 Ti AMP Extreme Holo 2026-11-07. Canvas layout:
-// top row = top edge of the card, bottom row = the side facing the window.
+// Four independently colored areas, each a single color: the controller has no
+// per-LED write, so every LED in an area shows the same color. Zone ids verified
+// on the 3090 Ti AMP Extreme Holo 2026-11-07. Each area gets several canvas
+// sample points spread over its real extent (proportions from photos of the
+// card; ZOTAC publishes no LED counts) and the area shows their average.
+// Canvas: row 0 = top edge of the card, row 1 = the side facing the window;
+// x runs from the bracket end (0) to the fan end (11).
+const LogoXs = [1, 2, 3];
+const StripeXs = [4, 5, 6, 7, 8, 9, 10, 11];
 const Zones = [
-	{name: "Side stripes",    id: 0x00, pos: [3, 1]},
-	{name: "Side ZOTAC logo", id: 0x01, pos: [0, 1]},
-	{name: "Top stripes",     id: 0x02, pos: [3, 0]},
-	{name: "Top ZOTAC logo",  id: 0x03, pos: [0, 0]},
+	{name: "Side stripes",    id: 0x00, y: 1, xs: StripeXs},
+	{name: "Side ZOTAC logo", id: 0x01, y: 1, xs: LogoXs},
+	{name: "Top stripes",     id: 0x02, y: 0, xs: StripeXs},
+	{name: "Top ZOTAC logo",  id: 0x03, y: 0, xs: LogoXs},
 ];
-const vLedNames = Zones.map(z => z.name);
-const vLedPositions = Zones.map(z => z.pos);
+const vLedNames = [];
+const vLedPositions = [];
+for (const z of Zones) {
+	z.xs.forEach((x, i) => { vLedNames.push(`${z.name} ${i + 1}`); vLedPositions.push([x, z.y]); });
+}
 
 const Address = 0x49;
 const ConfigRegister = 0xA0;
@@ -136,7 +145,14 @@ function CurrentColors() {
 		const c = hexToRgb(forcedColor);
 		return Zones.map(() => c);
 	}
-	return Zones.map(z => device.color(z.pos[0], z.pos[1]));
+	return Zones.map(z => {
+		const sum = [0, 0, 0];
+		for (const x of z.xs) {
+			const c = device.color(x, z.y);
+			sum[0] += c[0]; sum[1] += c[1]; sum[2] += c[2];
+		}
+		return sum.map(v => Math.round(v / z.xs.length));
+	});
 }
 
 export function Render() {
