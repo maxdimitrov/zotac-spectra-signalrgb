@@ -113,13 +113,39 @@ class ZotacDdc
     }
 
     // Command (raw 8 bytes) then read 32 bytes from reg 0xA0.
+    // Retries because another writer (SignalRGB) may hit the bus between the
+    // command and the read.
     static byte[] Query(byte[] cmd)
     {
-        Check("command write", Xfer(true, null, cmd));
-        Thread.Sleep(5);
-        var buf = new byte[32];
-        Check("reg 0xA0 read", Xfer(false, new byte[] { 0xA0 }, buf));
-        return buf;
+        for (int attempt = 1; ; attempt++)
+        {
+            var buf = new byte[32];
+            int st = Xfer(true, null, cmd);
+            if (st == 0) { Thread.Sleep(5); st = Xfer(false, new byte[] { 0xA0 }, buf); }
+            if (st == 0 && buf[4] == cmd[5] && buf[5] == cmd[6]) return buf;
+            if (attempt >= 20) throw new Exception("query failed after 20 attempts, last NvAPI status " + st);
+            Thread.Sleep(3);
+        }
+    }
+
+    // Same packet as the SignalRGB plugin: zone 1, static, verified bytes.
+    static void Static(byte[] rgb)
+    {
+        var p = new byte[30];
+        p[0] = 0x01; p[4] = 0x01; p[5] = 0x05; p[6] = 0x00;
+        p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];
+        p[10] = 0x2D; p[11] = 0x64; p[12] = 0x01; p[14] = 0x01;
+        p[16] = 0x93; p[17] = 0x34; p[18] = 0xC2;
+        Check("reg 0xA0 write", Xfer(true, new byte[] { 0xA0 }, p));
+    }
+
+    static byte[] Hue(double h)
+    {
+        double x = 1 - Math.Abs((h / 60) % 2 - 1);
+        double r = 0, g = 0, b = 0;
+        if (h < 60) { r = 1; g = x; } else if (h < 120) { r = x; g = 1; } else if (h < 180) { g = 1; b = x; }
+        else if (h < 240) { g = x; b = 1; } else if (h < 300) { r = x; b = 1; } else { r = 1; b = x; }
+        return new byte[] { (byte)(r * 255), (byte)(g * 255), (byte)(b * 255) };
     }
 
     static int Main(string[] args)
@@ -158,6 +184,30 @@ class ZotacDdc
                             Console.WriteLine("zone " + z + " slot " + s + ": "
                                 + Hex(Query(new byte[] { 0xA0, 0xF0, 0, 0, 0, z, s, 0 })));
                     break;
+                case "get":
+                {
+                    byte z = byte.Parse(args[1]), s = byte.Parse(args[2]);
+                    Console.WriteLine("zone " + z + " slot " + s + ": "
+                        + Hex(Query(new byte[] { 0xA0, 0xF0, 0, 0, 0, z, s, 0 })));
+                    break;
+                }
+                case "blinktest":
+                {
+                    // Phase 1 (3 s): one red write.
+                    // Phase 2 (5 s): identical green packet re-sent 10x/s.
+                    // Phase 3 (5 s): rainbow, 10 writes/s.
+                    // Phase 4 (5 s): rainbow, 30 writes/s.
+                    // End: static blue.
+                    Console.WriteLine("phase 1: red once"); Static(new byte[] { 255, 0, 0 }); Thread.Sleep(3000);
+                    Console.WriteLine("phase 2: same green x10/s");
+                    for (int i = 0; i < 50; i++) { Static(new byte[] { 0, 255, 0 }); Thread.Sleep(100); }
+                    Console.WriteLine("phase 3: rainbow x10/s");
+                    for (int i = 0; i < 50; i++) { Static(Hue(i * 360.0 / 50)); Thread.Sleep(100); }
+                    Console.WriteLine("phase 4: rainbow x30/s");
+                    for (int i = 0; i < 150; i++) { Static(Hue(i * 360.0 / 150)); Thread.Sleep(33); }
+                    Console.WriteLine("end: blue"); Static(new byte[] { 0, 0, 255 });
+                    break;
+                }
                 case "write":
                 {
                     var pkt = ParseHex(string.Join("", args, 1, args.Length - 1));

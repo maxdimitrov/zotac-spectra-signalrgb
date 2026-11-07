@@ -34,27 +34,35 @@ const Zone = 0x01;
 const ActiveSlot = 0x05;
 const StaticMode = 0x00;
 
-// Do not write faster than this; effects change color every frame.
-const MinWriteIntervalMs = 33;
+// Every config write makes the controller re-apply its lighting with a short
+// blackout (verified 2026-11-07; OpenRGB's ZotacV2 driver has no direct mode
+// either). So only push a color once it has held steady, and rarely.
+const StableMs = 500;
+const MinWriteIntervalMs = 2000;
 
 let lastKey = "";
 let lastWrite = 0;
+let pendingKey = "";
+let pendingSince = 0;
 let loggedFirstWrite = false;
 
-/** 30-byte config packet, byte-for-byte the static packet verified on the card,
- *  with only the primary color varied. Unknown bytes keep their captured values. */
+/** 30-byte config packet (field names from OpenRGB's ZotacV2GPUController),
+ *  byte-for-byte the static packet verified on the card, color varied. */
 function BuildStaticPacket(rgb) {
 	const p = new Array(30).fill(0);
-	p[0] = 0x01;
-	p[4] = Zone;
-	p[5] = ActiveSlot;
-	p[6] = StaticMode;
-	p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];
-	p[10] = 0x2D;   // slider seen with this packet; speed or brightness, unconfirmed
-	p[11] = 0x64;
-	p[12] = 0x01;
-	p[14] = 0x01;
-	p[16] = 0x93; p[17] = 0x34; p[18] = 0xC2;   // secondary color, unused by static
+	p[0] = 0x01;          // on
+	p[1] = 0x00;          // reset
+	p[4] = Zone;          // idleActive: 1 = active-state config (the visible one)
+	p[5] = ActiveSlot;    // zone
+	p[6] = StaticMode;    // mode
+	p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];   // color1
+	p[10] = 0x2D;         // speed (unused by static)
+	p[11] = 0x64;         // brightness 100
+	p[12] = 0x01;         // direction
+	p[14] = 0x01;         // syncMode
+	p[15] = 0x00;         // circuit
+	p[16] = 0x93; p[17] = 0x34; p[18] = 0xC2;   // color2 (unused by static)
+	p[19] = 0x00;         // colorPreset
 	return p;
 }
 
@@ -103,6 +111,8 @@ export function Scan(bus) {
 export function Initialize() {
 	lastKey = "";
 	lastWrite = 0;
+	pendingKey = "";
+	pendingSince = 0;
 	loggedFirstWrite = false;
 	const id = MatchId(bus);
 	if (id) { device.setName(id.Name); }
@@ -112,10 +122,14 @@ export function Initialize() {
 export function Render() {
 	const rgb = LightingMode === "Forced" ? hexToRgb(forcedColor) : device.color(0, 0);
 	const key = rgb.join(",");
-	if (key === lastKey) { return; }
-	if (Date.now() - lastWrite < MinWriteIntervalMs) { return; }
+	const now = Date.now();
+	if (key === lastKey) { pendingKey = ""; return; }
+	if (key !== pendingKey) { pendingKey = key; pendingSince = now; return; }
+	if (now - pendingSince < StableMs) { return; }
+	if (now - lastWrite < MinWriteIntervalMs) { return; }
 	SendColor(rgb);
 	lastKey = key;
+	pendingKey = "";
 }
 
 export function Shutdown(SystemSuspending) {
