@@ -128,15 +128,28 @@ class ZotacDdc
         }
     }
 
-    // Same packet as the SignalRGB plugin: zone 1, static, verified bytes.
-    static void Static(byte[] rgb)
+    // Same packets as the SignalRGB plugin: static, verified bytes, written to
+    // both the active (idleActive=1) and idle (idleActive=0) configs. The
+    // controller switches between them by itself (GPU idle -> idle config), so
+    // writing only one leaves the card on a stale or dark config.
+    static void Static(byte[] rgb, byte syncMode = 0x01)
     {
-        var p = new byte[30];
-        p[0] = 0x01; p[4] = 0x01; p[5] = 0x05; p[6] = 0x00;
-        p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];
-        p[10] = 0x2D; p[11] = 0x64; p[12] = 0x01; p[14] = 0x01;
-        p[16] = 0x93; p[17] = 0x34; p[18] = 0xC2;
-        Check("reg 0xA0 write", Xfer(true, new byte[] { 0xA0 }, p));
+        foreach (byte idleActive in new byte[] { 0x01, 0x00 })
+        {
+            var p = new byte[30];
+            p[0] = 0x01; p[4] = idleActive; p[5] = 0x05; p[6] = 0x00;
+            p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];
+            p[10] = 0x2D; p[11] = 0x64; p[12] = 0x01; p[14] = syncMode;
+            p[16] = 0x93; p[17] = 0x34; p[18] = 0xC2;
+            Check("reg 0xA0 write", Xfer(true, new byte[] { 0xA0 }, p));
+        }
+    }
+
+    static int[] ParseInts(string[] a, int from)
+    {
+        var r = new int[a.Length - from];
+        for (int i = from; i < a.Length; i++) r[i - from] = int.Parse(a[i]);
+        return r;
     }
 
     static byte[] Hue(double h)
@@ -206,6 +219,59 @@ class ZotacDdc
                     Console.WriteLine("phase 4: rainbow x30/s");
                     for (int i = 0; i < 150; i++) { Static(Hue(i * 360.0 / 150)); Thread.Sleep(33); }
                     Console.WriteLine("end: blue"); Static(new byte[] { 0, 0, 255 });
+                    break;
+                }
+                case "ratetest":
+                {
+                    // ratetest [secondsPerPhase] [intervalMs...]
+                    // Rainbow at shrinking update intervals. Default 5 s at 1000/500/250/100 ms.
+                    // The hue keeps advancing so every write is a new color.
+                    int phaseSec = args.Length > 1 ? int.Parse(args[1]) : 5;
+                    int[] intervals = args.Length > 2 ? ParseInts(args, 2) : new[] { 1000, 500, 250, 100 };
+                    double hue = 0;
+                    foreach (int ms in intervals)
+                    {
+                        Console.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff") + " every " + ms + " ms");
+                        var end = DateTime.Now.AddSeconds(phaseSec);
+                        while (DateTime.Now < end)
+                        {
+                            Static(Hue(hue)); hue = (hue + 37) % 360;
+                            Thread.Sleep(ms);
+                        }
+                    }
+                    Console.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff") + " end: blue"); Static(new byte[] { 0, 0, 255 });
+                    break;
+                }
+                case "abtest":
+                {
+                    // abtest [writesPerRun] [intervalMs]
+                    // 5 s lead-in on blue, then three runs separated by 5 s holds:
+                    //   A rainbow, syncMode 1 (baseline)
+                    //   B same green re-sent, syncMode 1
+                    //   C rainbow, syncMode 0
+                    // Every write is logged with a timestamp for video alignment.
+                    int writes = args.Length > 1 ? int.Parse(args[1]) : 120;
+                    int ms = args.Length > 2 ? int.Parse(args[2]) : 500;
+                    Func<string> ts = () => DateTime.Now.ToString("HH:mm:ss.fff");
+                    Static(new byte[] { 0, 0, 255 });
+                    Console.WriteLine(ts() + " lead-in blue"); Thread.Sleep(5000);
+                    string[] names = { "A rainbow sync1", "B same-green sync1", "C rainbow sync0" };
+                    for (int run = 0; run < 3; run++)
+                    {
+                        Console.WriteLine(ts() + " run " + names[run]);
+                        double hue = 0;
+                        for (int i = 0; i < writes; i++)
+                        {
+                            byte[] rgb = run == 1 ? new byte[] { 0, 255, 0 } : Hue(hue);
+                            Static(rgb, run == 2 ? (byte)0 : (byte)1);
+                            Console.WriteLine(ts() + " w " + run + " " + i);
+                            hue = (hue + 37) % 360;
+                            Thread.Sleep(ms);
+                        }
+                        Static(new byte[] { 0, 0, 255 });
+                        Console.WriteLine(ts() + " hold blue"); Thread.Sleep(5000);
+                    }
+                    Console.WriteLine(ts() + " end");
                     break;
                 }
                 case "write":

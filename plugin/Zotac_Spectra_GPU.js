@@ -25,14 +25,14 @@ export function ControllableParameters() {
 	];
 }
 
-// Zone 1 drives all of the card's visible lighting as one color; zone 0 shows
-// nothing on the 3090 Ti AMP Extreme Holo, so it is left alone.
+// The controller drives all of the card's visible lighting as one color.
 const vLedNames = ["GPU"];
 const vLedPositions = [[0, 0]];
 
 const Address = 0x49;
 const ConfigRegister = 0xA0;
-const Zone = 0x01;
+const ActiveState = 0x01;
+const IdleState = 0x00;
 const ActiveSlot = 0x05;
 const StaticMode = 0x00;
 
@@ -52,11 +52,11 @@ let loggedFirstWrite = false;
 
 /** 30-byte config packet (field names from OpenRGB's ZotacV2GPUController),
  *  byte-for-byte the static packet verified on the card, color varied. */
-function BuildStaticPacket(rgb) {
+function BuildStaticPacket(rgb, idleActive) {
 	const p = new Array(30).fill(0);
 	p[0] = 0x01;          // on
 	p[1] = 0x00;          // reset
-	p[4] = Zone;          // idleActive: 1 = active-state config (the visible one)
+	p[4] = idleActive;    // 1 = active-state config, 0 = idle-state config
 	p[5] = ActiveSlot;    // zone
 	p[6] = StaticMode;    // mode
 	p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];   // color1
@@ -152,8 +152,14 @@ export function Shutdown(SystemSuspending) {
 }
 
 function SendColor(rgb) {
-	const packet = BuildStaticPacket(rgb);
-	const ret = bus.WriteBlock(ConfigRegister, packet.length, packet);
+	// The controller picks the active or idle config by itself (idle when the
+	// GPU idles), so both get the same color; otherwise the card goes dark or
+	// stale when it switches.
+	let ret = 0;
+	for (const state of [ActiveState, IdleState]) {
+		const packet = BuildStaticPacket(rgb, state);
+		ret = bus.WriteBlock(ConfigRegister, packet.length, packet);
+	}
 	lastWrite = Date.now();
 	if (!loggedFirstWrite) {
 		bus.log(`ZOTAC SPECTRA: first write rgb=${rgb} ret=${ret}`, {toFile: true});
