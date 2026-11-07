@@ -71,6 +71,13 @@ off  field         value
 
 The write takes effect immediately; no commit write is needed.
 
+**Zones** (verified 2026-11-07 by writing a different static colour to each,
+syncMode 0): 0 = side stripes, 1 = side ZOTAC logo, 2 = top stripes,
+3 = top ZOTAC logo, 4 = nothing visible (likely the external ARGB header),
+5 = all zones synchronized (with syncMode 1; what FireStorm writes). Each zone
+is one colour; none is addressable. Same layout as OpenRGB's table entry
+`{4 zones, external strip}` for the RTX 3090 AMP Extreme Holo.
+
 **Idle vs active:** the controller switches between the idleActive=1 and
 idleActive=0 configs by itself (idle config while the GPU idles). This card's
 stored idle config had brightness 0, so writing only the active config left the

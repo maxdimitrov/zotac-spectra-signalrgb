@@ -5,7 +5,7 @@
 export function Name() { return "ZOTAC SPECTRA 2.0 GPU"; }
 export function Publisher() { return "maxdimitrov"; }
 export function Type() { return "SMBUS"; }
-export function Size() { return [1, 1]; }
+export function Size() { return [6, 2]; }
 export function LedNames() { return vLedNames; }
 export function LedPositions() { return vLedPositions; }
 export function DeviceType() { return "gpu"; }
@@ -21,49 +21,57 @@ export function ControllableParameters() {
 		{property:"shutdownColor", group:"lighting", label:"Shutdown Color", description: "Applied when the system or SignalRGB shuts down", min:"0", max:"360", type:"color", default:"#000000"},
 		{property:"LightingMode", group:"lighting", label:"Lighting Mode", description: "Canvas follows the active effect, Forced uses a fixed color", type:"combobox", values:["Canvas", "Forced"], default:"Canvas"},
 		{property:"forcedColor", group:"lighting", label:"Forced Color", description: "Color used when Lighting Mode is Forced", min:"0", max:"360", type:"color", default:"#009bde"},
-		{property:"UpdateStyle", group:"lighting", label:"Update Style", description: "The card blinks briefly on every color update. 'Steady colors' updates when the effect color holds still (and at least every 10 s); 'Every few seconds' follows any effect every 3 s", type:"combobox", values:["Steady colors", "Every few seconds"], default:"Steady colors"},
+		{property:"UpdateStyle", group:"lighting", label:"Update Style", description: "The card can blink briefly on a color update. 'Steady colors' updates when the effect colors hold still (and at least every 10 s); 'Every few seconds' follows any effect every 3 s", type:"combobox", values:["Steady colors", "Every few seconds"], default:"Steady colors"},
 	];
 }
 
-// The controller drives all of the card's visible lighting as one color.
-const vLedNames = ["GPU"];
-const vLedPositions = [[0, 0]];
+// Four independently colored areas, each a single color (not addressable).
+// Zone ids verified on the 3090 Ti AMP Extreme Holo 2026-11-07. Canvas layout:
+// top row = top edge of the card, bottom row = the side facing the window.
+const Zones = [
+	{name: "Side stripes",    id: 0x00, pos: [3, 1]},
+	{name: "Side ZOTAC logo", id: 0x01, pos: [0, 1]},
+	{name: "Top stripes",     id: 0x02, pos: [3, 0]},
+	{name: "Top ZOTAC logo",  id: 0x03, pos: [0, 0]},
+];
+const vLedNames = Zones.map(z => z.name);
+const vLedPositions = Zones.map(z => z.pos);
 
 const Address = 0x49;
 const ConfigRegister = 0xA0;
 const ActiveState = 0x01;
 const IdleState = 0x00;
-const ActiveSlot = 0x05;
 const StaticMode = 0x00;
+const SyncOff = 0x00;   // per-zone colors (0x01 = all zones follow zone 5)
 
-// Every config write makes the controller re-apply its lighting with a short
-// blackout (verified 2026-11-07; OpenRGB's ZotacV2 driver has no direct mode
-// either). So only push a color once it has held steady, and rarely.
+// Every config write can make the controller re-apply its lighting with a
+// ~40 ms blackout (2-6% of updates, at any rate, measured 2026-11-07; there is
+// no direct mode). So only push colors once they have held steady, and rarely.
 const StableMs = 500;
 const MinWriteIntervalMs = 2000;
-const SteadyMaxStaleMs = 10000;   // "Steady colors": never sit on an old color longer
+const SteadyMaxStaleMs = 10000;   // "Steady colors": never sit on old colors longer
 const PeriodicIntervalMs = 3000;  // "Every few seconds"
 
-let lastKey = "";
+let lastKeys = [];
 let lastWrite = 0;
 let pendingKey = "";
 let pendingSince = 0;
 let loggedFirstWrite = false;
 
 /** 30-byte config packet (field names from OpenRGB's ZotacV2GPUController),
- *  byte-for-byte the static packet verified on the card, color varied. */
-function BuildStaticPacket(rgb, idleActive) {
+ *  the static packet verified on the card, per zone and idle/active state. */
+function BuildStaticPacket(rgb, zone, idleActive) {
 	const p = new Array(30).fill(0);
 	p[0] = 0x01;          // on
 	p[1] = 0x00;          // reset
 	p[4] = idleActive;    // 1 = active-state config, 0 = idle-state config
-	p[5] = ActiveSlot;    // zone
+	p[5] = zone;          // 0-3 card areas, 5 = all synchronized
 	p[6] = StaticMode;    // mode
 	p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];   // color1
 	p[10] = 0x2D;         // speed (unused by static)
 	p[11] = 0x64;         // brightness 100
 	p[12] = 0x01;         // direction
-	p[14] = 0x01;         // syncMode
+	p[14] = SyncOff;      // syncMode
 	p[15] = 0x00;         // circuit
 	p[16] = 0x93; p[17] = 0x34; p[18] = 0xC2;   // color2 (unused by static)
 	p[19] = 0x00;         // colorPreset
@@ -113,7 +121,7 @@ export function Scan(bus) {
 }
 
 export function Initialize() {
-	lastKey = "";
+	lastKeys = [];
 	lastWrite = 0;
 	pendingKey = "";
 	pendingSince = 0;
@@ -123,15 +131,24 @@ export function Initialize() {
 	bus.log(`ZOTAC SPECTRA: initialized on "${bus.Name()}" port ${bus.Port()} addr ${hex2(bus.GetAddress())}`, {toFile: true});
 }
 
+function CurrentColors() {
+	if (LightingMode === "Forced") {
+		const c = hexToRgb(forcedColor);
+		return Zones.map(() => c);
+	}
+	return Zones.map(z => device.color(z.pos[0], z.pos[1]));
+}
+
 export function Render() {
-	const rgb = LightingMode === "Forced" ? hexToRgb(forcedColor) : device.color(0, 0);
-	const key = rgb.join(",");
+	const colors = CurrentColors();
+	const keys = colors.map(c => c.join(","));
+	const key = keys.join("|");
 	const now = Date.now();
-	if (key === lastKey) { pendingKey = ""; return; }
+	if (key === lastKeys.join("|")) { pendingKey = ""; return; }
 
 	let send = false;
 	if (lastWrite === 0) {
-		send = true;                                   // first color: immediately
+		send = true;                                   // first colors: immediately
 	} else if (UpdateStyle === "Every few seconds") {
 		send = now - lastWrite >= PeriodicIntervalMs;
 	} else {
@@ -142,27 +159,32 @@ export function Render() {
 	}
 	if (!send) { return; }
 
-	SendColor(rgb);
-	lastKey = key;
+	SendColors(colors, keys, false);
+	lastKeys = keys;
 	pendingKey = "";
 }
 
 export function Shutdown(SystemSuspending) {
-	SendColor(hexToRgb(SystemSuspending ? "#000000" : shutdownColor));
+	const c = hexToRgb(SystemSuspending ? "#000000" : shutdownColor);
+	SendColors(Zones.map(() => c), [], true);
 }
 
-function SendColor(rgb) {
-	// The controller picks the active or idle config by itself (idle when the
-	// GPU idles), so both get the same color; otherwise the card goes dark or
-	// stale when it switches.
+/** Writes each zone whose color changed (or all when forced). The controller
+ *  picks the active or idle config by itself (idle when the GPU idles), so
+ *  both get the same color; otherwise the card goes dark or stale when it
+ *  switches. */
+function SendColors(colors, keys, all) {
 	let ret = 0;
-	for (const state of [ActiveState, IdleState]) {
-		const packet = BuildStaticPacket(rgb, state);
-		ret = bus.WriteBlock(ConfigRegister, packet.length, packet);
-	}
+	Zones.forEach((zone, i) => {
+		if (!all && lastKeys[i] === keys[i]) { return; }
+		for (const state of [ActiveState, IdleState]) {
+			const packet = BuildStaticPacket(colors[i], zone.id, state);
+			ret = bus.WriteBlock(ConfigRegister, packet.length, packet);
+		}
+	});
 	lastWrite = Date.now();
 	if (!loggedFirstWrite) {
-		bus.log(`ZOTAC SPECTRA: first write rgb=${rgb} ret=${ret}`, {toFile: true});
+		bus.log(`ZOTAC SPECTRA: first write colors=${colors.map(c => c.join(",")).join(" | ")} ret=${ret}`, {toFile: true});
 		loggedFirstWrite = true;
 	}
 }
