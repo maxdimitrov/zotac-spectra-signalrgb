@@ -14,12 +14,14 @@ export function ImageUrl() { return "https://assets.signalrgb.com/devices/defaul
 shutdownColor:readonly
 LightingMode:readonly
 forcedColor:readonly
+UpdateStyle:readonly
 */
 export function ControllableParameters() {
 	return [
 		{property:"shutdownColor", group:"lighting", label:"Shutdown Color", description: "Applied when the system or SignalRGB shuts down", min:"0", max:"360", type:"color", default:"#000000"},
 		{property:"LightingMode", group:"lighting", label:"Lighting Mode", description: "Canvas follows the active effect, Forced uses a fixed color", type:"combobox", values:["Canvas", "Forced"], default:"Canvas"},
 		{property:"forcedColor", group:"lighting", label:"Forced Color", description: "Color used when Lighting Mode is Forced", min:"0", max:"360", type:"color", default:"#009bde"},
+		{property:"UpdateStyle", group:"lighting", label:"Update Style", description: "The card blinks briefly on every color update. 'Steady colors' updates when the effect color holds still (and at least every 10 s); 'Every few seconds' follows any effect every 3 s", type:"combobox", values:["Steady colors", "Every few seconds"], default:"Steady colors"},
 	];
 }
 
@@ -39,6 +41,8 @@ const StaticMode = 0x00;
 // either). So only push a color once it has held steady, and rarely.
 const StableMs = 500;
 const MinWriteIntervalMs = 2000;
+const SteadyMaxStaleMs = 10000;   // "Steady colors": never sit on an old color longer
+const PeriodicIntervalMs = 3000;  // "Every few seconds"
 
 let lastKey = "";
 let lastWrite = 0;
@@ -124,9 +128,20 @@ export function Render() {
 	const key = rgb.join(",");
 	const now = Date.now();
 	if (key === lastKey) { pendingKey = ""; return; }
-	if (key !== pendingKey) { pendingKey = key; pendingSince = now; return; }
-	if (now - pendingSince < StableMs) { return; }
-	if (now - lastWrite < MinWriteIntervalMs) { return; }
+
+	let send = false;
+	if (lastWrite === 0) {
+		send = true;                                   // first color: immediately
+	} else if (UpdateStyle === "Every few seconds") {
+		send = now - lastWrite >= PeriodicIntervalMs;
+	} else {
+		if (key !== pendingKey) { pendingKey = key; pendingSince = now; }
+		const stable = now - pendingSince >= StableMs && now - lastWrite >= MinWriteIntervalMs;
+		const stale = now - lastWrite >= SteadyMaxStaleMs;
+		send = stable || stale;
+	}
+	if (!send) { return; }
+
 	SendColor(rgb);
 	lastKey = key;
 	pendingKey = "";
