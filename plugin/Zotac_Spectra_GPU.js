@@ -5,7 +5,7 @@
 export function Name() { return "ZOTAC SPECTRA 2.0 GPU"; }
 export function Publisher() { return "maxdimitrov"; }
 export function Type() { return "SMBUS"; }
-export function Size() { return [12, 2]; }
+export function Size() { return [28, 2]; }
 export function LedNames() { return vLedNames; }
 export function LedPositions() { return vLedPositions; }
 export function DeviceType() { return "gpu"; }
@@ -26,19 +26,20 @@ export function ControllableParameters() {
 }
 
 // Four independently colored areas, each a single color: the controller has no
-// per-LED write, so every LED in an area shows the same color. Zone ids verified
-// on the 3090 Ti AMP Extreme Holo 2026-11-07. Each area gets several canvas
-// sample points spread over its real extent (proportions from photos of the
-// card; ZOTAC publishes no LED counts) and the area shows their average.
-// Canvas: row 0 = top edge of the card, row 1 = the side facing the window;
-// x runs from the bracket end (0) to the fan end (11).
-const LogoXs = [1, 2, 3];
-const StripeXs = [4, 5, 6, 7, 8, 9, 10, 11];
+// per-LED write, so every LED in an area shows the same color. Zone ids and LED
+// counts measured on the 3090 Ti AMP Extreme Holo 2026-11-07/08 (film of the
+// built-in SLIDE effect, ~180 ms per LED step): side stripes 24, side logo 4,
+// backplate stripes ~24, backplate claw logo 4. One canvas sample per LED; the
+// area shows their average.
+// Canvas: row 0 = backplate, row 1 = the side facing the window; x runs from the
+// bracket end (0) to the far end (27), where both stripe areas sit.
+const LogoXs = [0, 1, 2, 3];
+const StripeXs = Array.from({length: 24}, (_, i) => 4 + i);
 const Zones = [
 	{name: "Side stripes",    id: 0x00, y: 1, xs: StripeXs},
 	{name: "Side ZOTAC logo", id: 0x01, y: 1, xs: LogoXs},
-	{name: "Top stripes",     id: 0x02, y: 0, xs: StripeXs},
-	{name: "Top ZOTAC logo",  id: 0x03, y: 0, xs: LogoXs},
+	{name: "Backplate stripes", id: 0x02, y: 0, xs: StripeXs},
+	{name: "Backplate logo",  id: 0x03, y: 0, xs: LogoXs},
 ];
 const vLedNames = [];
 const vLedPositions = [];

@@ -145,6 +145,19 @@ class ZotacDdc
         }
     }
 
+    // One zone, both idle/active configs, explicit mode/speed/syncMode.
+    static void ZoneCfg(byte zone, byte mode, byte[] rgb, byte speed, byte syncMode)
+    {
+        foreach (byte idleActive in new byte[] { 0x01, 0x00 })
+        {
+            var p = new byte[30];
+            p[0] = 0x01; p[4] = idleActive; p[5] = zone; p[6] = mode;
+            p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];
+            p[10] = speed; p[11] = 0x64; p[12] = 0x01; p[14] = syncMode;
+            Check("reg 0xA0 write", Xfer(true, new byte[] { 0xA0 }, p));
+        }
+    }
+
     static int[] ParseInts(string[] a, int from)
     {
         var r = new int[a.Length - from];
@@ -272,6 +285,32 @@ class ZotacDdc
                         Console.WriteLine(ts() + " hold blue"); Thread.Sleep(5000);
                     }
                     Console.WriteLine(ts() + " end");
+                    break;
+                }
+                case "slidetest":
+                {
+                    // slidetest [secondsPerSpeed] [repsPerZone]
+                    // Per zone 0-3, repeated: all zones black, then that zone in
+                    // SLIDE (0x07) white at speed 0x10, then at 0x50. Film it to
+                    // count LED steps.
+                    int sec = args.Length > 1 ? int.Parse(args[1]) : 10;
+                    int reps = args.Length > 2 ? int.Parse(args[2]) : 3;
+                    Func<string> ts = () => DateTime.Now.ToString("HH:mm:ss.fff");
+                    byte[] black = { 0, 0, 0 }, white = { 255, 255, 255 };
+                    for (byte z = 0; z < 4; z++)
+                    for (int rep = 0; rep < reps; rep++)
+                    {
+                        for (byte k = 0; k < 4; k++) ZoneCfg(k, 0x00, black, 0x2D, 0);
+                        Console.WriteLine(ts() + " dark"); Thread.Sleep(2000);
+                        foreach (byte speed in new byte[] { 0x10, 0x50 })
+                        {
+                            ZoneCfg(z, 0x07, white, speed, 0);
+                            Console.WriteLine(ts() + " zone " + z + " slide speed 0x" + speed.ToString("x2"));
+                            Thread.Sleep(sec * 1000);
+                        }
+                    }
+                    for (byte k = 0; k < 4; k++) ZoneCfg(k, 0x00, new byte[] { 0, 0, 255 }, 0x2D, 0);
+                    Console.WriteLine(ts() + " end: all blue");
                     break;
                 }
                 case "write":

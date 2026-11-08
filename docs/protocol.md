@@ -72,10 +72,14 @@ off  field         value
 The write takes effect immediately; no commit write is needed.
 
 **Zones** (verified 2026-11-07 by writing a different static colour to each,
-syncMode 0): 0 = side stripes, 1 = side ZOTAC logo, 2 = top stripes,
-3 = top ZOTAC logo, 4 = nothing visible (likely the external ARGB header),
+syncMode 0): 0 = side stripes (24 LEDs), 1 = side ZOTAC GAMING logo (4),
+2 = backplate stripes (~23-24), 3 = backplate claw logo (4), 4 = nothing
+visible (likely the external ARGB header),
 5 = all zones synchronized (with syncMode 1; what FireStorm writes). Each zone
-is one colour; none is addressable. Same layout as OpenRGB's table entry
+is one colour; none is addressable. LED counts come from filming mode 0x07
+(slide, white, speed 0x10) one zone at a time (`zotac_ddc slidetest`): the
+light advances one LED per ~180 ms and one cycle is 2N+2 steps (fill, empty,
+2-step gap), which also counts LEDs hidden behind cables. Same layout as OpenRGB's table entry
 `{4 zones, external strip}` for the RTX 3090 AMP Extreme Holo.
 
 **Idle vs active:** the controller switches between the idleActive=1 and
