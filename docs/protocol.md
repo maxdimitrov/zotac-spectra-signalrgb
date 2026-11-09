@@ -15,7 +15,7 @@ PCI IDs: vendor 0x10DE, device 0x2203, subsystem 0x19DA:0x4666.
 ZOTAC FireStorm 3.0.0.040E (`C:\Program Files (x86)\ZotacFireStorm\FireStorm.exe`,
 32-bit) ships no kernel driver and imports no `DeviceIoControl` / WinRing0.
 It resolves NvAPI functions through `nvapi_QueryInterface`. Running it under
-Frida with `tools/nvapi_hook.js` (launcher `tools/run-trace.ps1`) logged
+Frida with `tools/nvapi_hook.cjs` (launcher `tools/run-trace.ps1`) logged
 every NvAPI call while the lighting was changed in the UI. Capture:
 `captures/2026-11-06-firestorm-trace.log`.
 

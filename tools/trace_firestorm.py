@@ -1,4 +1,4 @@
-"""Spawn FireStorm under Frida, load nvapi_hook.js, log to a file.
+"""Spawn FireStorm under Frida, load nvapi_hook.cjs, log to a file.
 
 Usage: python trace_firestorm.py <hook.js> <out.log>
 Press Enter in the console to drop a MARK line into the log.
