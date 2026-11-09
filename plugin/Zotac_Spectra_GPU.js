@@ -26,7 +26,7 @@ export function ControllableParameters() {
 		{property:"LightingMode", group:"lighting", label:"Lighting Mode", description: "Canvas follows the active effect, Forced uses a fixed color", type:"combobox", values:["Canvas", "Forced"], default:"Canvas"},
 		{property:"forcedColor", group:"lighting", label:"Forced Color", description: "Color used when Lighting Mode is Forced", min:"0", max:"360", type:"color", default:"#009bde"},
 		{property:"UpdateStyle", group:"lighting", label:"Update Style", description: "The card can blink briefly on a color update. 'Steady colors' updates when the effect colors hold still (and at least every 10 s); 'Every few seconds' follows any effect every 3 s", type:"combobox", values:["Steady colors", "Every few seconds"], default:"Steady colors"},
-		{property:"HardwareEffect", group:"lighting", label:"Card Effect", description: "Animation the card runs by itself in each area's color. Static follows the canvas color only; Slide and Breathing animate it smoothly with no updates needed; Rainbow ignores the canvas and never blinks", type:"combobox", values:["Static", "Slide", "Breathing", "Rainbow"], default:"Static"},
+		{property:"HardwareEffect", group:"lighting", label:"Card Effect", description: "Animation the card runs by itself in each area's color. Static follows the canvas color only; Slide and Breathing animate it smoothly with no updates needed; Rainbow ignores the canvas colors and never blinks, but turns off while the canvas is black (idle, lights off)", type:"combobox", values:["Static", "Slide", "Breathing", "Rainbow"], default:"Static"},
 		{property:"EffectSpeed", group:"lighting", label:"Card Effect Speed", description: "Speed of the card's own animation (higher = faster)", step:"1", type:"number", min:"1", max:"100", default:"20"},
 	];
 }
@@ -68,6 +68,10 @@ const StableMs = 500;
 const MinWriteIntervalMs = 2000;
 const SteadyMaxStaleMs = 10000;   // "Steady colors": never sit on old colors longer
 const PeriodicIntervalMs = 3000;  // "Every few seconds"
+// Rainbow ignores the canvas, so it would stay lit when SignalRGB blacks the
+// canvas (idle timeout, lights off). An all-black canvas held this long turns
+// the card off instead; any color brings the rainbow back.
+const DarkHoldMs = 2000;
 
 let lastKeys = [];
 let lastWrite = 0;
@@ -75,6 +79,7 @@ let pendingKey = "";
 let pendingSince = 0;
 let loggedFirstWrite = false;
 let lastEffectKey = "";
+let darkSince = 0;
 
 /** 30-byte config packet (field names from OpenRGB's ZotacV2GPUController),
  *  the static packet verified on the card, per zone and idle/active state,
@@ -153,6 +158,7 @@ export function Scan(bus) {
 export function Initialize() {
 	lastKeys = [];
 	lastEffectKey = "";
+	darkSince = 0;
 	lastWrite = 0;
 	pendingKey = "";
 	pendingSince = 0;
@@ -177,20 +183,27 @@ function CurrentColors() {
 	});
 }
 
-function EffectKey() {
-	return `${HardwareEffect}/${Math.round(EffectSpeed)}`;
-}
-
 export function Render() {
-	const effectKey = EffectKey();
-	const rainbow = HardwareEffect === "Rainbow";
-	const colors = rainbow ? Zones.map(() => [255, 255, 255]) : CurrentColors();
+	const now = Date.now();
+	const canvas = CurrentColors();
+	const allBlack = canvas.every(c => c[0] === 0 && c[1] === 0 && c[2] === 0);
+	if (!allBlack) {
+		darkSince = 0;
+	} else if (darkSince === 0) {
+		darkSince = now;
+	}
+	const dark = allBlack && now - darkSince >= DarkHoldMs;
+	const effect = (HardwareEffect === "Rainbow" && dark) ? "Static" : HardwareEffect;
+	const colors = effect === "Rainbow" ? Zones.map(() => [255, 255, 255]) : canvas;
 	const keys = colors.map(c => c.join(","));
 	const key = keys.join("|");
-	const now = Date.now();
+	const effectKey = `${effect}/${Math.round(EffectSpeed)}`;
 
-	if (effectKey !== lastEffectKey) {                // setting changed: rewrite everything now
-		SendColors(colors, keys, true);
+	if (effectKey !== lastEffectKey) {                // setting changed or rainbow on/off: rewrite everything now
+		if (HardwareEffect === "Rainbow" && lastEffectKey !== "") {
+			bus.log(`ZOTAC SPECTRA: canvas ${dark ? "dark, card off" : "lit, rainbow on"}`, {toFile: true});
+		}
+		SendColors(colors, keys, true, effect);
 		lastKeys = keys;
 		lastEffectKey = effectKey;
 		pendingKey = "";
@@ -211,7 +224,7 @@ export function Render() {
 	}
 	if (!send) { return; }
 
-	SendColors(colors, keys, false);
+	SendColors(colors, keys, false, effect);
 	lastKeys = keys;
 	pendingKey = "";
 }
