@@ -11,7 +11,7 @@ if (-not $isAdmin) {
 Get-Process FireStorm -ErrorAction SilentlyContinue | Stop-Process -Force
 $py = (Get-Command python -ErrorAction Stop).Source
 try {
-    & $py "$here\trace_firestorm.py" "$here\nvapi_hook.js" "$here\firestorm_trace.log"
+    & $py "$here\trace_firestorm.py" "$here\nvapi_hook.cjs" "$here\firestorm_trace.log"
 } catch {
     Write-Host $_ -ForegroundColor Red
 }

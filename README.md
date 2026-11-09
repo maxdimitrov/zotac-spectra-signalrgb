@@ -17,13 +17,29 @@ SignalRGB effects. Until now only ZOTAC FireStorm could control it.
 
 ## Install
 
+Quit ZOTAC FireStorm first; both would write to the controller.
+
+**As a SignalRGB add-on (recommended, updates itself):**
+
+[![Add To Installation](https://marketplace.signalrgb.com/resources/add-extension-256.png 'Add to My SignalRGB Installation')](signalrgb://addon/install?url=https://github.com/maxdimitrov/zotac-spectra-signalrgb)
+
+1. Click the button above (or open
+   `signalrgb://addon/install?url=https://github.com/maxdimitrov/zotac-spectra-signalrgb`)
+   and confirm the install prompt in SignalRGB.
+2. Restart SignalRGB when it asks.
+3. The card appears as **ZOTAC RTX 3090 Ti AMP Extreme Holo**. Add it to your
+   layout.
+
+**Manually:**
+
 1. Download [`plugin/Zotac_Spectra_GPU.js`](plugin/Zotac_Spectra_GPU.js).
 2. Copy it into your SignalRGB plugins folder:
    `Documents\WhirlwindFX\Plugins\` (create `Plugins` if it is missing; if your
    Documents folder is on OneDrive, use that one).
-3. Quit ZOTAC FireStorm, then restart SignalRGB fully (from the tray icon).
-4. The card appears as **ZOTAC RTX 3090 Ti AMP Extreme Holo**. Add it to your
-   layout.
+3. Restart SignalRGB fully (from the tray icon).
+
+Use one or the other: with both installed, two copies of the plugin claim the
+same card.
 
 ## Settings
 
