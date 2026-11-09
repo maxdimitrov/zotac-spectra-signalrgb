@@ -15,6 +15,8 @@ shutdownColor:readonly
 LightingMode:readonly
 forcedColor:readonly
 UpdateStyle:readonly
+HardwareEffect:readonly
+EffectSpeed:readonly
 */
 export function ControllableParameters() {
 	return [
@@ -22,6 +24,8 @@ export function ControllableParameters() {
 		{property:"LightingMode", group:"lighting", label:"Lighting Mode", description: "Canvas follows the active effect, Forced uses a fixed color", type:"combobox", values:["Canvas", "Forced"], default:"Canvas"},
 		{property:"forcedColor", group:"lighting", label:"Forced Color", description: "Color used when Lighting Mode is Forced", min:"0", max:"360", type:"color", default:"#009bde"},
 		{property:"UpdateStyle", group:"lighting", label:"Update Style", description: "The card can blink briefly on a color update. 'Steady colors' updates when the effect colors hold still (and at least every 10 s); 'Every few seconds' follows any effect every 3 s", type:"combobox", values:["Steady colors", "Every few seconds"], default:"Steady colors"},
+		{property:"HardwareEffect", group:"lighting", label:"Card Effect", description: "Animation the card runs by itself in each area's color. Static follows the canvas color only; Slide and Breathing animate it smoothly with no updates needed; Rainbow ignores the canvas and never blinks", type:"combobox", values:["Static", "Slide", "Breathing", "Rainbow"], default:"Static"},
+		{property:"EffectSpeed", group:"lighting", label:"Card Effect Speed", description: "Speed of the card's own animation (higher = faster)", step:"1", type:"number", min:"1", max:"100", default:"20"},
 	];
 }
 
@@ -51,7 +55,8 @@ const Address = 0x49;
 const ConfigRegister = 0xA0;
 const ActiveState = 0x01;
 const IdleState = 0x00;
-const StaticMode = 0x00;
+// Card-side animation modes (OpenRGB ZotacV2GPUController names).
+const EffectModes = {"Static": 0x00, "Slide": 0x07, "Breathing": 0x01, "Rainbow": 0x08};
 const SyncOff = 0x00;   // per-zone colors (0x01 = all zones follow zone 5)
 
 // Every config write can make the controller re-apply its lighting with a
@@ -67,18 +72,20 @@ let lastWrite = 0;
 let pendingKey = "";
 let pendingSince = 0;
 let loggedFirstWrite = false;
+let lastEffectKey = "";
 
 /** 30-byte config packet (field names from OpenRGB's ZotacV2GPUController),
- *  the static packet verified on the card, per zone and idle/active state. */
-function BuildStaticPacket(rgb, zone, idleActive) {
+ *  the static packet verified on the card, per zone and idle/active state,
+ *  with the card-side animation mode and speed. */
+function BuildPacket(rgb, zone, idleActive, mode, speed) {
 	const p = new Array(30).fill(0);
 	p[0] = 0x01;          // on
 	p[1] = 0x00;          // reset
 	p[4] = idleActive;    // 1 = active-state config, 0 = idle-state config
 	p[5] = zone;          // 0-3 card areas, 5 = all synchronized
-	p[6] = StaticMode;    // mode
+	p[6] = mode;          // mode
 	p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];   // color1
-	p[10] = 0x2D;         // speed (unused by static)
+	p[10] = speed;        // speed 0x00-0x64 (unused by static)
 	p[11] = 0x64;         // brightness 100
 	p[12] = 0x01;         // direction
 	p[14] = SyncOff;      // syncMode
@@ -132,6 +139,7 @@ export function Scan(bus) {
 
 export function Initialize() {
 	lastKeys = [];
+	lastEffectKey = "";
 	lastWrite = 0;
 	pendingKey = "";
 	pendingSince = 0;
@@ -156,11 +164,25 @@ function CurrentColors() {
 	});
 }
 
+function EffectKey() {
+	return `${HardwareEffect}/${Math.round(EffectSpeed)}`;
+}
+
 export function Render() {
-	const colors = CurrentColors();
+	const effectKey = EffectKey();
+	const rainbow = HardwareEffect === "Rainbow";
+	const colors = rainbow ? Zones.map(() => [255, 255, 255]) : CurrentColors();
 	const keys = colors.map(c => c.join(","));
 	const key = keys.join("|");
 	const now = Date.now();
+
+	if (effectKey !== lastEffectKey) {                // setting changed: rewrite everything now
+		SendColors(colors, keys, true);
+		lastKeys = keys;
+		lastEffectKey = effectKey;
+		pendingKey = "";
+		return;
+	}
 	if (key === lastKeys.join("|")) { pendingKey = ""; return; }
 
 	let send = false;
@@ -183,19 +205,21 @@ export function Render() {
 
 export function Shutdown(SystemSuspending) {
 	const c = hexToRgb(SystemSuspending ? "#000000" : shutdownColor);
-	SendColors(Zones.map(() => c), [], true);
+	SendColors(Zones.map(() => c), [], true, "Static");
 }
 
 /** Writes each zone whose color changed (or all when forced). The controller
  *  picks the active or idle config by itself (idle when the GPU idles), so
  *  both get the same color; otherwise the card goes dark or stale when it
  *  switches. */
-function SendColors(colors, keys, all) {
+function SendColors(colors, keys, all, effect = HardwareEffect) {
+	const mode = (effect in EffectModes) ? EffectModes[effect] : 0x00;
+	const speed = Math.max(0, Math.min(100, Math.round(EffectSpeed)));
 	let ret = 0;
 	Zones.forEach((zone, i) => {
 		if (!all && lastKeys[i] === keys[i]) { return; }
 		for (const state of [ActiveState, IdleState]) {
-			const packet = BuildStaticPacket(colors[i], zone.id, state);
+			const packet = BuildPacket(colors[i], zone.id, state, mode, speed);
 			ret = bus.WriteBlock(ConfigRegister, packet.length, packet);
 		}
 	});
