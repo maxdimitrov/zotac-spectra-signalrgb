@@ -1,7 +1,7 @@
 # Zotac SPECTRA -> SignalRGB Plugin - Design
 
 **Date:** 2026-05-22
-**Status:** Approved (design phase)
+**Status:** Historical. This was the original design. The plan changed as the work went on: the controller sits on NvAPI DDC port 1 (not the SMBus OpenRGB scans), per-zone control shipped, and the plugin file is `plugin/Zotac_Spectra_GPU.js`. See `README.md` and `docs/protocol.md` for the current state.
 **Target hardware:** ZOTAC GAMING GeForce RTX 3090 Ti AMP Extreme Holo (SPECTRA 2.0 RGB)
 
 ## Goal

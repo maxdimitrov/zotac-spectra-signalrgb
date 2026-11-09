@@ -26,11 +26,11 @@ Open https://openrgb.org/ -> Downloads -> "Windows 64-bit (Portable)". Save the 
 
 - [ ] **Step 3: Extract**
 
-Extract the zip to `C:\Users\maxa2\Tools\OpenRGB\`.
+Extract the zip to `%USERPROFILE%/Tools/OpenRGB\`.
 
 - [ ] **Step 4: Verify**
 
-Confirm `C:\Users\maxa2\Tools\OpenRGB\OpenRGB.exe` exists.
+Confirm `%USERPROFILE%/Tools/OpenRGB\OpenRGB.exe` exists.
 Expected: file present.
 
 ## Task 2: First launch with hardware access
@@ -157,7 +157,7 @@ Ensure `docs/protocol.md` contains, near the top: NVIDIA GPU bus name(s); respon
 - [ ] **Step 2: Commit**
 
 ```bash
-cd c:/Users/maxa2/claude/zotac-spectra-signalrgb
+cd <repo root>
 git add docs/protocol.md
 git commit -m "docs: add Phase 0 SPECTRA controller protocol findings"
 ```
@@ -178,7 +178,7 @@ Apply the DESIGN.md decision gate:
 Write the decision (GO / HOLD / NO-GO) and its rationale at the top of `docs/protocol.md`. Commit:
 
 ```bash
-cd c:/Users/maxa2/claude/zotac-spectra-signalrgb
+cd <repo root>
 git add docs/protocol.md
 git commit -m "docs: record Phase 0 decision gate outcome"
 ```

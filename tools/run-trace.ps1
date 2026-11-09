@@ -9,7 +9,7 @@ if (-not $isAdmin) {
     exit
 }
 Get-Process FireStorm -ErrorAction SilentlyContinue | Stop-Process -Force
-$py = 'C:\Users\maxa2\AppData\Local\Python\pythoncore-3.14-64\python.exe'
+$py = (Get-Command python -ErrorAction Stop).Source
 try {
     & $py "$here\trace_firestorm.py" "$here\nvapi_hook.js" "$here\firestorm_trace.log"
 } catch {

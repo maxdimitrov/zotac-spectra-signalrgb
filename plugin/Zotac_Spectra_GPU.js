@@ -1,7 +1,9 @@
 // ZOTAC SPECTRA 2.0 GPU lighting for SignalRGB.
 // Protocol: docs/protocol.md in github.com/maxdimitrov/zotac-spectra-signalrgb
 // (captured from ZOTAC FireStorm; NvAPI DDC port 1, address 0x49).
-// Modifying SMBUS plugins is risky; this one only sends packets FireStorm itself sends.
+// Modifying SMBUS Plugins is -DANGEROUS- and can -DESTROY- devices.
+// This one only sends packet layouts ZOTAC FireStorm itself sends, and never
+// writes register 0xA2 (FireStorm's save-to-flash).
 export function Name() { return "ZOTAC SPECTRA 2.0 GPU"; }
 export function Publisher() { return "maxdimitrov"; }
 export function Type() { return "SMBUS"; }
@@ -96,7 +98,7 @@ function BuildPacket(rgb, zone, idleActive, mode, speed) {
 }
 
 const ZotacIDs = [
-	{Vendor: 0x10DE, SubVendor: 0x19DA, Device: 0x2203, SubDevice: 0x4666, Name: "ZOTAC RTX 3090 Ti AMP Extreme Holo"},
+	{Vendor: 0x10DE, SubVendor: 0x19DA, Device: 0x2203, SubDevice: 0x4666, Controller: "N666E-1017", Name: "ZOTAC RTX 3090 Ti AMP Extreme Holo"},
 ];
 
 function MatchId(bus) {
@@ -111,29 +113,40 @@ function MatchId(bus) {
 
 function hex2(n) { return "0x" + (n >>> 0).toString(16).padStart(2, "0"); }
 
+/** FireStorm's identify query: raw `a0 f1 00..`, then 32 bytes from reg 0xA0
+ *  hold the controller id as ASCII. Retried because the bus can be busy. */
+function ReadControllerId(bus) {
+	for (let attempt = 0; attempt < 3; attempt++) {
+		try {
+			bus.WriteBlockWithoutRegister(Address, 8, [0xA0, 0xF1, 0, 0, 0, 0, 0, 0]);
+			const rd = bus.ReadBlockWithoutRegister(Address, 32);
+			const bytes = (rd && rd[0] === 0 && rd[1]) ? Array.from(rd[1]) : [];
+			const text = String.fromCharCode(...bytes.filter(b => b >= 0x20 && b < 0x7F));
+			if (text.length > 0) { return text; }
+		} catch (e) {
+			bus.log(`ZOTAC SPECTRA: identify threw: ${e}`, {toFile: true});
+		}
+	}
+	return "";
+}
+
 /** @param {FreeAddressBus} bus */
 export function Scan(bus) {
 	if (!bus.IsNvidiaBus()) { return []; }
 
-	bus.log(`ZOTAC SPECTRA: NVIDIA bus "${bus.Name()}" port ${bus.Port()} type ${bus.Type()} ids ` +
-		`${hex2(bus.Vendor())}:${hex2(bus.Product())} sub ${hex2(bus.SubVendor())}:${hex2(bus.SubDevice())}`, {toFile: true});
-
 	const id = MatchId(bus);
 	if (!id) { return []; }
 
-	// Diagnostic only: FireStorm's identify query. Expect "N666E-1017" back.
-	try {
-		const wr = bus.WriteBlockWithoutRegister(Address, 8, [0xA0, 0xF1, 0, 0, 0, 0, 0, 0]);
-		const rd = bus.ReadBlockWithoutRegister(Address, 32);
-		const bytes = (rd && rd[1]) ? Array.from(rd[1]) : [];
-		const text = String.fromCharCode(...bytes.filter(b => b >= 0x20 && b < 0x7F));
-		bus.log(`ZOTAC SPECTRA: identify on port ${bus.Port()}: write=${wr} read code=${rd ? rd[0] : "?"} ` +
-			`text="${text}" bytes=[${bytes.map(hex2).join(" ")}]`, {toFile: true});
-	} catch (e) {
-		bus.log(`ZOTAC SPECTRA: identify threw: ${e}`, {toFile: true});
+	// Only claim the card when the controller answers with the expected id, so
+	// a board revision with another controller is never written to.
+	const controller = ReadControllerId(bus);
+	if (!controller.includes(id.Controller)) {
+		bus.log(`ZOTAC SPECTRA: ${id.Name} on port ${bus.Port()} answered "${controller}", ` +
+			`expected "${id.Controller}"; not claiming it`, {toFile: true});
+		return [];
 	}
 
-	bus.log(`ZOTAC SPECTRA: matched ${id.Name} on "${bus.Name()}" port ${bus.Port()}, using ${hex2(Address)}`, {toFile: true});
+	bus.log(`ZOTAC SPECTRA: found ${id.Name} (controller ${controller}) on port ${bus.Port()}`, {toFile: true});
 	return [Address];
 }
 
