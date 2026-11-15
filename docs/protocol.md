@@ -60,12 +60,12 @@ off  field         value
  7-9 colour1       R G B
 10   speed         0x00-0x64
 11   brightness    0x00-0x64
-12   direction
+12   direction     01 right / 00 left (OpenRGB); per zone
 13                 varies; unknown
 14   syncMode      01 (00 = card stops following colour1; see below)
-15   circuit       00 / 01
+15   circuit       00 = on, 01 = off (OpenRGB; rainbow/marquee/drip/duet)
 16-18 colour2      R2 G2 B2 (two-colour effects)
-19   colorPreset
+19   colorPreset   duet: 0-3 built-in pairs, 4 = custom colour1/colour2
 20-29              00
 ```
 

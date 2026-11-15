@@ -11,8 +11,9 @@ SignalRGB effects. Until now only ZOTAC FireStorm could control it.
 - **A layout that matches the card**: one canvas point per physical LED
   (24 + 4 on the side, ~24 + 4 on the backplate). Each area shows the average
   of its points.
-- **Card Effect**: run the card's own Slide, Breathing or Rainbow animation in
-  the colours SignalRGB gives it, or keep it Static.
+- **Card Effect**: let the card animate by itself (Slide, Breathing, Marquee,
+  Drip, Duet, Rainbow, Path) in the colours SignalRGB gives it, with a
+  direction per area, or keep it Static.
 - No helper program, no admin rights, no FireStorm needed.
 
 ## Install
@@ -46,9 +47,9 @@ same card.
 | Setting | What it does |
 |---|---|
 | Lighting Mode | **Canvas** follows the effect; **Forced** uses one fixed colour. |
-| Card Effect | **Static** shows the colour; **Slide** / **Breathing** animate it on the card; **Rainbow** runs the card's own rainbow and ignores SignalRGB colours, but turns off while SignalRGB shows black (idle timeout, lights off). |
+| Card Effect | **Static** shows the colour. **Slide**, **Breathing**, **Marquee** and **Drip** animate it on the card. **Duet** chases the two colours at the two ends of each area (or the colour and a dim copy when both ends match). **Rainbow** and **Path** use the card's own colours and ignore SignalRGB's, but turn off while SignalRGB shows black (idle timeout, lights off). |
 | Card Effect Speed | 1-100, speed of the card's animation. |
-| Direction (one per area) | **Forward** / **Reverse**: which way Slide and Rainbow flow in that area. |
+| Direction (one per area) | **Forward** / **Reverse**: which way moving effects flow in that area. |
 | Update Style | **Steady colors** updates once the effect colour holds still (and at least every 10 s); **Every few seconds** follows any effect every 3 s. |
 | Shutdown Color | Colour applied when SignalRGB or the PC shuts down. |
 
@@ -60,7 +61,8 @@ same card.
 - **Occasional blink on a colour change.** Every colour update makes the
   controller re-apply its settings, and about 2-6% of updates black the card
   out for ~40 ms. The plugin therefore updates only when colours settle.
-  Rainbow never blinks because it needs no updates.
+  The card effects run on the card, so they move smoothly; Rainbow and Path
+  never blink because they need no colour updates.
 - **Only this card is supported and tested.** Other ZOTAC SPECTRA 2.0 cards
   speak the same protocol but have different areas; the plugin checks both the
   PCI ids and the controller id (`N666E-1017`) and leaves any other card alone.
