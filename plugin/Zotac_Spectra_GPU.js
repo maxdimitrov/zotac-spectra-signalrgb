@@ -19,7 +19,10 @@ forcedColor:readonly
 UpdateStyle:readonly
 HardwareEffect:readonly
 EffectSpeed:readonly
-EffectDirection:readonly
+DirSideStripes:readonly
+DirSideLogo:readonly
+DirBackStripes:readonly
+DirBackLogo:readonly
 */
 export function ControllableParameters() {
 	return [
@@ -29,7 +32,10 @@ export function ControllableParameters() {
 		{property:"UpdateStyle", group:"lighting", label:"Update Style", description: "The card can blink briefly on a color update. 'Steady colors' updates when the effect colors hold still (and at least every 10 s); 'Every few seconds' follows any effect every 3 s", type:"combobox", values:["Steady colors", "Every few seconds"], default:"Steady colors"},
 		{property:"HardwareEffect", group:"lighting", label:"Card Effect", description: "Animation the card runs by itself in each area's color. Static follows the canvas color only; Slide and Breathing animate it smoothly with no updates needed; Rainbow ignores the canvas colors and never blinks, but turns off while the canvas is black (idle, lights off)", type:"combobox", values:["Static", "Slide", "Breathing", "Rainbow"], default:"Static"},
 		{property:"EffectSpeed", group:"lighting", label:"Card Effect Speed", description: "Speed of the card's own animation (higher = faster)", step:"1", type:"number", min:"1", max:"100", default:"20"},
-		{property:"EffectDirection", group:"lighting", label:"Card Effect Direction", description: "Which way Slide and Rainbow flow along the card (Breathing and Static have no direction)", type:"combobox", values:["Forward", "Reverse"], default:"Forward"},
+		{property:"DirSideStripes", group:"lighting", label:"Direction: Side stripes", description: "Which way Slide and Rainbow flow in this area (Breathing and Static have no direction)", type:"combobox", values:["Forward", "Reverse"], default:"Forward"},
+		{property:"DirSideLogo", group:"lighting", label:"Direction: Side ZOTAC logo", description: "Which way Slide and Rainbow flow in this area (Breathing and Static have no direction)", type:"combobox", values:["Forward", "Reverse"], default:"Forward"},
+		{property:"DirBackStripes", group:"lighting", label:"Direction: Backplate stripes", description: "Which way Slide and Rainbow flow in this area (Breathing and Static have no direction)", type:"combobox", values:["Forward", "Reverse"], default:"Forward"},
+		{property:"DirBackLogo", group:"lighting", label:"Direction: Backplate logo", description: "Which way Slide and Rainbow flow in this area (Breathing and Static have no direction)", type:"combobox", values:["Forward", "Reverse"], default:"Forward"},
 	];
 }
 
@@ -44,10 +50,10 @@ export function ControllableParameters() {
 const LogoXs = [0, 1, 2, 3];
 const StripeXs = Array.from({length: 24}, (_, i) => 4 + i);
 const Zones = [
-	{name: "Side stripes",    id: 0x00, y: 1, xs: StripeXs},
-	{name: "Side ZOTAC logo", id: 0x01, y: 1, xs: LogoXs},
-	{name: "Backplate stripes", id: 0x02, y: 0, xs: StripeXs},
-	{name: "Backplate logo",  id: 0x03, y: 0, xs: LogoXs},
+	{name: "Side stripes",    id: 0x00, y: 1, xs: StripeXs, dir: () => DirSideStripes},
+	{name: "Side ZOTAC logo", id: 0x01, y: 1, xs: LogoXs, dir: () => DirSideLogo},
+	{name: "Backplate stripes", id: 0x02, y: 0, xs: StripeXs, dir: () => DirBackStripes},
+	{name: "Backplate logo",  id: 0x03, y: 0, xs: LogoXs, dir: () => DirBackLogo},
 ];
 const vLedNames = [];
 const vLedPositions = [];
@@ -199,7 +205,7 @@ export function Render() {
 	const colors = effect === "Rainbow" ? Zones.map(() => [255, 255, 255]) : canvas;
 	const keys = colors.map(c => c.join(","));
 	const key = keys.join("|");
-	const effectKey = `${effect}/${Math.round(EffectSpeed)}/${EffectDirection}`;
+	const effectKey = `${effect}/${Math.round(EffectSpeed)}/${Zones.map(z => z.dir()).join(",")}`;
 
 	if (effectKey !== lastEffectKey) {                // setting changed or rainbow on/off: rewrite everything now
 		if (HardwareEffect === "Rainbow" && lastEffectKey !== "") {
@@ -243,10 +249,10 @@ export function Shutdown(SystemSuspending) {
 function SendColors(colors, keys, all, effect = HardwareEffect) {
 	const mode = (effect in EffectModes) ? EffectModes[effect] : 0x00;
 	const speed = Math.max(0, Math.min(100, Math.round(EffectSpeed)));
-	const direction = EffectDirection === "Reverse" ? 0x00 : 0x01;
 	let ret = 0;
 	Zones.forEach((zone, i) => {
 		if (!all && lastKeys[i] === keys[i]) { return; }
+		const direction = zone.dir() === "Reverse" ? 0x00 : 0x01;
 		for (const state of [ActiveState, IdleState]) {
 			const packet = BuildPacket(colors[i], zone.id, state, mode, speed, direction);
 			ret = bus.WriteBlock(ConfigRegister, packet.length, packet);
