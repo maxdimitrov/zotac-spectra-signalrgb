@@ -87,6 +87,14 @@ idleActive=0 configs by itself (idle config while the GPU idles). This card's
 stored idle config had brightness 0, so writing only the active config left the
 card dark whenever it went idle. Write every colour to both.
 
+**0xA0 writes are most likely stored in flash.** The configs read back after
+power loss: on 2026-11-15 zone 5 (which the plugin never writes) still held the
+static blue `zotac_ddc` wrote on 11-08, across a sleep on 11-09 that cuts the
+card's power. OpenRGB flags every mode `MODE_FLAG_AUTOMATIC_SAVE`, and SignalRGB
+staff declined ZOTAC support because repeated writes "would burn out the
+onboard memory". Endurance is unknown, so the plugin writes at most once a
+minute. Not yet confirmed with a cold boot (shut down, power on, dump).
+
 **Every 0xA0 write can black the card out for ~40 ms** (2-3 frames at 60 fps).
 Measured on video 2026-11-07, 120 updates per run at 0.5 s: rainbow 7
 blackouts, the identical green packet re-sent 3, syncMode=0 rainbow 9 (and the

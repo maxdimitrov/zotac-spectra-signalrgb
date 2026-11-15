@@ -16,7 +16,7 @@ export function ImageUrl() { return "https://assets.signalrgb.com/devices/defaul
 shutdownColor:readonly
 LightingMode:readonly
 forcedColor:readonly
-UpdateStyle:readonly
+ColorUpdates:readonly
 HardwareEffect:readonly
 EffectSpeed:readonly
 DirSideStripes:readonly
@@ -29,7 +29,7 @@ export function ControllableParameters() {
 		{property:"shutdownColor", group:"lighting", label:"Shutdown Color", description: "Applied when the system or SignalRGB shuts down", min:"0", max:"360", type:"color", default:"#000000"},
 		{property:"LightingMode", group:"lighting", label:"Lighting Mode", description: "Canvas follows the active effect, Forced uses a fixed color", type:"combobox", values:["Canvas", "Forced"], default:"Canvas"},
 		{property:"forcedColor", group:"lighting", label:"Forced Color", description: "Color used when Lighting Mode is Forced", min:"0", max:"360", type:"color", default:"#009bde"},
-		{property:"UpdateStyle", group:"lighting", label:"Update Style", description: "The card can blink briefly on a color update. 'Steady colors' updates when the effect colors hold still (and at least every 10 s); 'Every few seconds' follows any effect every 3 s", type:"combobox", values:["Steady colors", "Every few seconds"], default:"Steady colors"},
+		{property:"ColorUpdates", group:"lighting", label:"Color Updates", description: "How often canvas color changes are sent to the card. The controller stores every update in its flash memory, which wears out, so updates are rare and only sent once a color holds still; use a Card Effect for motion. 'Only on setting changes' never follows the canvas", type:"combobox", values:["Every minute", "Every 5 minutes", "Only on setting changes"], default:"Every minute"},
 		{property:"HardwareEffect", group:"lighting", label:"Card Effect", description: "Animation the card runs by itself, so it moves smoothly with no updates (and no blinks). Static, Slide, Breathing, Marquee and Drip use each area's canvas color; Duet chases the two colors at the two ends of each area; Rainbow and Path use the card's own colors and turn off while the canvas is black (idle, lights off)", type:"combobox", values:["Static", "Slide", "Breathing", "Marquee", "Drip", "Duet", "Rainbow", "Path"], default:"Static"},
 		{property:"EffectSpeed", group:"lighting", label:"Card Effect Speed", description: "Speed of the card's own animation (higher = faster)", step:"1", type:"number", min:"1", max:"100", default:"20"},
 		{property:"DirSideStripes", group:"lighting", label:"Direction: Side stripes", description: "Which way moving effects flow in this area (Static and Breathing have no direction)", type:"combobox", values:["Forward", "Reverse"], default:"Forward"},
@@ -75,22 +75,27 @@ const OwnColorEffects = ["Rainbow", "Path"];
 const DuetCustomPreset = 0x04;   // colorPreset index after OpenRGB's 4 built-in duet pairs
 const SyncOff = 0x00;   // per-zone colors (0x01 = all zones follow zone 5)
 
-// Every config write can make the controller re-apply its lighting with a
-// ~40 ms blackout (2-6% of updates, at any rate, measured 2026-11-07; there is
-// no direct mode). So only push colors once they have held steady, and rarely.
-const StableMs = 500;
-const MinWriteIntervalMs = 2000;
-const SteadyMaxStaleMs = 10000;   // "Steady colors": never sit on old colors longer
-const PeriodicIntervalMs = 3000;  // "Every few seconds"
+// Every config write is most likely stored in the controller's flash: stored
+// configs survive power loss, OpenRGB marks every mode "automatic save", and
+// SignalRGB declined Zotac support over flash wear. Each write can also black
+// the card out for ~40 ms (2-6% of writes, measured 2026-11-07). So write as
+// little as possible: card effects do the motion; canvas colors go out at most
+// once per Color Updates interval, once they have held for StableMs, and only
+// when the change is visible.
+const StableMs = 1000;
+const UpdateIntervals = {"Every minute": 60000, "Every 5 minutes": 300000, "Only on setting changes": Infinity};
+const MinVisibleDiff = 24;        // largest channel difference that still counts as "same color"
+const WriteLogEvery = 100;        // log the running config-write count every N writes
 // Rainbow and Path ignore the canvas, so they would stay lit when SignalRGB
 // blacks the canvas (idle timeout, lights off). An all-black canvas held this
 // long turns the card off instead; any color brings the effect back.
 const DarkHoldMs = 2000;
 
-let lastKeys = [];
+let lastColors = [];      // per zone, as last written
 let lastWrite = 0;
-let pendingKey = "";
+let pending = null;       // colors waiting to hold still
 let pendingSince = 0;
+let writeCount = 0;       // config packets written since Initialize
 let loggedFirstWrite = false;
 let lastEffectKey = "";
 let darkSince = 0;
@@ -176,12 +181,13 @@ export function Scan(bus) {
 }
 
 export function Initialize() {
-	lastKeys = [];
+	lastColors = [];
 	lastEffectKey = "";
 	darkSince = 0;
 	lastWrite = 0;
-	pendingKey = "";
+	pending = null;
 	pendingSince = 0;
+	writeCount = 0;
 	loggedFirstWrite = false;
 	const id = MatchId(bus);
 	if (id) { device.setName(id.Name); }
@@ -231,60 +237,67 @@ export function Render() {
 	const ownColors = OwnColorEffects.includes(HardwareEffect);
 	const effect = (ownColors && dark) ? "Static" : HardwareEffect;
 	const colors = OwnColorEffects.includes(effect) ? Zones.map(() => [255, 255, 255]) : canvas;
-	const keys = colors.map(c => c.join(","));
-	const key = keys.join("|");
 	const effectKey = `${effect}/${Math.round(EffectSpeed)}/${Zones.map(z => z.dir()).join(",")}`;
 
 	if (effectKey !== lastEffectKey) {                // setting changed or Rainbow/Path on/off: rewrite everything now
 		if (ownColors && lastEffectKey !== "") {
 			bus.log(`ZOTAC SPECTRA: canvas ${dark ? "dark, card off" : `lit, ${HardwareEffect} on`}`, {toFile: true});
 		}
-		SendColors(colors, keys, true, effect);
-		lastKeys = keys;
+		SendColors(colors, true, effect);
 		lastEffectKey = effectKey;
-		pendingKey = "";
+		pending = null;
 		return;
 	}
-	if (key === lastKeys.join("|")) { pendingKey = ""; return; }
+	if (!colors.some((c, i) => Differs(c, lastColors[i]))) { pending = null; return; }
 
-	let send = false;
-	if (lastWrite === 0) {
-		send = true;                                   // first colors: immediately
-	} else if (UpdateStyle === "Every few seconds") {
-		send = now - lastWrite >= PeriodicIntervalMs;
-	} else {
-		if (key !== pendingKey) { pendingKey = key; pendingSince = now; }
-		const stable = now - pendingSince >= StableMs && now - lastWrite >= MinWriteIntervalMs;
-		const stale = now - lastWrite >= SteadyMaxStaleMs;
-		send = stable || stale;
+	if (pending === null || colors.some((c, i) => Differs(c, pending[i]))) {
+		pending = colors;
+		pendingSince = now;
 	}
-	if (!send) { return; }
+	const interval = (ColorUpdates in UpdateIntervals) ? UpdateIntervals[ColorUpdates] : 60000;
+	const due = now - lastWrite >= interval;
+	const stable = now - pendingSince >= StableMs;
+	const stale = now - lastWrite >= 2 * interval;    // a canvas that never holds still
+	if (!(due && (stable || stale))) { return; }
 
-	SendColors(colors, keys, false, effect);
-	lastKeys = keys;
-	pendingKey = "";
+	SendColors(colors, false, effect);
+	pending = null;
+}
+
+/** A visible change: any channel moved more than MinVisibleDiff, or the area
+ *  goes fully black (so "off" is never left dimly lit). */
+function Differs(a, b) {
+	if (!b || a.length !== b.length) { return true; }
+	if (a.every(v => v === 0)) { return b.some(v => v !== 0); }
+	return a.some((v, i) => Math.abs(v - b[i]) > MinVisibleDiff);
 }
 
 export function Shutdown(SystemSuspending) {
 	const c = hexToRgb(SystemSuspending ? "#000000" : shutdownColor);
-	SendColors(Zones.map(() => c), [], true, "Static");
+	SendColors(Zones.map(() => c), true, "Static");
+	bus.log(`ZOTAC SPECTRA: shutdown after ${writeCount} config writes`, {toFile: true});
 }
 
-/** Writes each zone whose color changed (or all when forced). The controller
+/** Writes each zone whose color visibly changed (or all when forced). The controller
  *  picks the active or idle config by itself (idle when the GPU idles), so
  *  both get the same color; otherwise the card goes dark or stale when it
  *  switches. */
-function SendColors(colors, keys, all, effect = HardwareEffect) {
+function SendColors(colors, all, effect = HardwareEffect) {
 	const mode = (effect in EffectModes) ? EffectModes[effect] : 0x00;
 	const speed = Math.max(0, Math.min(100, Math.round(EffectSpeed)));
 	let ret = 0;
 	Zones.forEach((zone, i) => {
-		if (!all && lastKeys[i] === keys[i]) { return; }
+		if (!all && !Differs(colors[i], lastColors[i])) { return; }
 		const direction = zone.dir() === "Reverse" ? 0x00 : 0x01;
 		for (const state of [ActiveState, IdleState]) {
 			const packet = BuildPacket(colors[i], zone.id, state, mode, speed, direction);
 			ret = bus.WriteBlock(ConfigRegister, packet.length, packet);
+			writeCount++;
+			if (writeCount % WriteLogEvery === 0) {
+				bus.log(`ZOTAC SPECTRA: ${writeCount} config writes since start`, {toFile: true});
+			}
 		}
+		lastColors[i] = colors[i];
 	});
 	lastWrite = Date.now();
 	if (!loggedFirstWrite) {

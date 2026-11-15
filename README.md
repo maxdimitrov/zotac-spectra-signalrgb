@@ -50,7 +50,7 @@ same card.
 | Card Effect | **Static** shows the colour. **Slide**, **Breathing**, **Marquee** and **Drip** animate it on the card. **Duet** chases the two colours at the two ends of each area (or the colour and a dim copy when both ends match). **Rainbow** and **Path** use the card's own colours and ignore SignalRGB's, but turn off while SignalRGB shows black (idle timeout, lights off). |
 | Card Effect Speed | 1-100, speed of the card's animation. |
 | Direction (one per area) | **Forward** / **Reverse**: which way moving effects flow in that area. |
-| Update Style | **Steady colors** updates once the effect colour holds still (and at least every 10 s); **Every few seconds** follows any effect every 3 s. |
+| Color Updates | How often SignalRGB colour changes reach the card: **Every minute** (default), **Every 5 minutes**, or **Only on setting changes**. Only visible changes that hold still for a second are sent. |
 | Shutdown Color | Colour applied when SignalRGB or the PC shuts down. |
 
 ## Limits
@@ -58,11 +58,15 @@ same card.
 - **One colour per area.** The controller only accepts a colour per area; it
   has no per-LED command. Fast per-frame effects are reduced to the area
   average.
-- **Occasional blink on a colour change.** Every colour update makes the
-  controller re-apply its settings, and about 2-6% of updates black the card
-  out for ~40 ms. The plugin therefore updates only when colours settle.
-  The card effects run on the card, so they move smoothly; Rainbow and Path
-  never blink because they need no colour updates.
+- **Colour updates are rare on purpose: the card stores each one in flash.**
+  The controller keeps every setting it receives through power loss, so each
+  colour update is most likely a write to its flash memory, which wears out
+  after an unknown number of writes. (This is why SignalRGB never supported
+  ZOTAC cards.) The plugin therefore sends at most one update per minute, and
+  only visible changes that have settled. For movement, use a **Card Effect**:
+  it runs on the card and needs no updates. Rainbow and Path need none at all.
+- **Occasional blink on a colour change.** About 2-6% of updates black the
+  card out for ~40 ms while the controller applies them.
 - **Only this card is supported and tested.** Other ZOTAC SPECTRA 2.0 cards
   speak the same protocol but have different areas; the plugin checks both the
   PCI ids and the controller id (`N666E-1017`) and leaves any other card alone.
