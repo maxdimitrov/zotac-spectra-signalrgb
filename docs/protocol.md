@@ -60,12 +60,12 @@ off  field         value
  7-9 colour1       R G B
 10   speed         0x00-0x64
 11   brightness    0x00-0x64
-12   direction
+12   direction     01 right / 00 left (OpenRGB); per zone
 13                 varies; unknown
 14   syncMode      01 (00 = card stops following colour1; see below)
-15   circuit       00 / 01
+15   circuit       00 = on, 01 = off (OpenRGB; rainbow/marquee/drip/duet)
 16-18 colour2      R2 G2 B2 (two-colour effects)
-19   colorPreset
+19   colorPreset   duet: 0-3 built-in pairs, 4 = custom colour1/colour2
 20-29              00
 ```
 
@@ -86,6 +86,14 @@ light advances one LED per ~180 ms and one cycle is 2N+2 steps (fill, empty,
 idleActive=0 configs by itself (idle config while the GPU idles). This card's
 stored idle config had brightness 0, so writing only the active config left the
 card dark whenever it went idle. Write every colour to both.
+
+**0xA0 writes are most likely stored in flash.** The configs read back after
+power loss: on 2026-11-15 zone 5 (which the plugin never writes) still held the
+static blue `zotac_ddc` wrote on 11-08, across a sleep on 11-09 that cuts the
+card's power. OpenRGB flags every mode `MODE_FLAG_AUTOMATIC_SAVE`, and SignalRGB
+staff declined ZOTAC support because repeated writes "would burn out the
+onboard memory". Endurance is unknown, so the plugin writes at most once a
+minute. Not yet confirmed with a cold boot (shut down, power on, dump).
 
 **Every 0xA0 write can black the card out for ~40 ms** (2-3 frames at 60 fps).
 Measured on video 2026-11-07, 120 updates per run at 0.5 s: rainbow 7
