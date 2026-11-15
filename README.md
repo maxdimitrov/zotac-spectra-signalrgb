@@ -48,6 +48,7 @@ same card.
 | Lighting Mode | **Canvas** follows the effect; **Forced** uses one fixed colour. |
 | Card Effect | **Static** shows the colour; **Slide** / **Breathing** animate it on the card; **Rainbow** runs the card's own rainbow and ignores SignalRGB colours, but turns off while SignalRGB shows black (idle timeout, lights off). |
 | Card Effect Speed | 1-100, speed of the card's animation. |
+| Card Effect Direction | **Forward** / **Reverse**: which way Slide and Rainbow flow. |
 | Update Style | **Steady colors** updates once the effect colour holds still (and at least every 10 s); **Every few seconds** follows any effect every 3 s. |
 | Shutdown Color | Colour applied when SignalRGB or the PC shuts down. |
 
