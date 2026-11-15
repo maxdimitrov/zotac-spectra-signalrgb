@@ -19,6 +19,7 @@ forcedColor:readonly
 UpdateStyle:readonly
 HardwareEffect:readonly
 EffectSpeed:readonly
+EffectDirection:readonly
 */
 export function ControllableParameters() {
 	return [
@@ -28,6 +29,7 @@ export function ControllableParameters() {
 		{property:"UpdateStyle", group:"lighting", label:"Update Style", description: "The card can blink briefly on a color update. 'Steady colors' updates when the effect colors hold still (and at least every 10 s); 'Every few seconds' follows any effect every 3 s", type:"combobox", values:["Steady colors", "Every few seconds"], default:"Steady colors"},
 		{property:"HardwareEffect", group:"lighting", label:"Card Effect", description: "Animation the card runs by itself in each area's color. Static follows the canvas color only; Slide and Breathing animate it smoothly with no updates needed; Rainbow ignores the canvas colors and never blinks, but turns off while the canvas is black (idle, lights off)", type:"combobox", values:["Static", "Slide", "Breathing", "Rainbow"], default:"Static"},
 		{property:"EffectSpeed", group:"lighting", label:"Card Effect Speed", description: "Speed of the card's own animation (higher = faster)", step:"1", type:"number", min:"1", max:"100", default:"20"},
+		{property:"EffectDirection", group:"lighting", label:"Card Effect Direction", description: "Which way Slide and Rainbow flow along the card (Breathing and Static have no direction)", type:"combobox", values:["Forward", "Reverse"], default:"Forward"},
 	];
 }
 
@@ -84,7 +86,7 @@ let darkSince = 0;
 /** 30-byte config packet (field names from OpenRGB's ZotacV2GPUController),
  *  the static packet verified on the card, per zone and idle/active state,
  *  with the card-side animation mode and speed. */
-function BuildPacket(rgb, zone, idleActive, mode, speed) {
+function BuildPacket(rgb, zone, idleActive, mode, speed, direction) {
 	const p = new Array(30).fill(0);
 	p[0] = 0x01;          // on
 	p[1] = 0x00;          // reset
@@ -94,7 +96,7 @@ function BuildPacket(rgb, zone, idleActive, mode, speed) {
 	p[7] = rgb[0]; p[8] = rgb[1]; p[9] = rgb[2];   // color1
 	p[10] = speed;        // speed 0x00-0x64 (unused by static)
 	p[11] = 0x64;         // brightness 100
-	p[12] = 0x01;         // direction
+	p[12] = direction;    // 1 = OpenRGB "right" (Forward), 0 = "left" (Reverse)
 	p[14] = SyncOff;      // syncMode
 	p[15] = 0x00;         // circuit
 	p[16] = 0x93; p[17] = 0x34; p[18] = 0xC2;   // color2 (unused by static)
@@ -197,7 +199,7 @@ export function Render() {
 	const colors = effect === "Rainbow" ? Zones.map(() => [255, 255, 255]) : canvas;
 	const keys = colors.map(c => c.join(","));
 	const key = keys.join("|");
-	const effectKey = `${effect}/${Math.round(EffectSpeed)}`;
+	const effectKey = `${effect}/${Math.round(EffectSpeed)}/${EffectDirection}`;
 
 	if (effectKey !== lastEffectKey) {                // setting changed or rainbow on/off: rewrite everything now
 		if (HardwareEffect === "Rainbow" && lastEffectKey !== "") {
@@ -241,11 +243,12 @@ export function Shutdown(SystemSuspending) {
 function SendColors(colors, keys, all, effect = HardwareEffect) {
 	const mode = (effect in EffectModes) ? EffectModes[effect] : 0x00;
 	const speed = Math.max(0, Math.min(100, Math.round(EffectSpeed)));
+	const direction = EffectDirection === "Reverse" ? 0x00 : 0x01;
 	let ret = 0;
 	Zones.forEach((zone, i) => {
 		if (!all && lastKeys[i] === keys[i]) { return; }
 		for (const state of [ActiveState, IdleState]) {
-			const packet = BuildPacket(colors[i], zone.id, state, mode, speed);
+			const packet = BuildPacket(colors[i], zone.id, state, mode, speed, direction);
 			ret = bus.WriteBlock(ConfigRegister, packet.length, packet);
 		}
 	});
